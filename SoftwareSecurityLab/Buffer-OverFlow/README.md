@@ -42,7 +42,15 @@ $ gcc -z execstack -o test test.c
 $ gcc -z noexecstack -o test test.c
 ```
 
-**配置 `/bin/sh` 仅适用于Ubuntu 16.04 VM）**:  在Ubuntu 12.04和Ubuntu 16.04 VM中，`/bin/sh` 符号链接均指向`/bin/dash` shell。但是，这两个VM中的`dash`程序有重要区别。Ubuntu 16.04中的`dash` shell 有一个对策，可防止自身在`Set-UID`进程中执行。基本上，如果`dash`检测到它是在`Set-UID`进程中执行的，它将立即将有效用户ID更改为该进程的真实用户ID，从而实质上删除了特权。Ubuntu 12.04中的破折号程序没有此行为。
+**配置 `/bin/sh` 仅适用于Ubuntu 16.04 VM）**:  在Ubuntu 12.04和Ubuntu 16.04 VM中，`/bin/sh` 符号链接均指向`/bin/dash` shell。但是，这两个VM中的`dash`程序有重要区别。Ubuntu 16.04中的`dash` shell 有一个对策，可防止自身在`Set-UID`进程中执行。基本上，如果`dash`检测到它是在`Set-UID`进程中执行的，它将立即将有效用户ID更改为该进程的真实用户ID，从而实质上删除了特权。Ubuntu 12.04中的`dash`程序没有此行为。
+
+由于我们的受害者程序是Set-UID程序，并且我们的攻击依赖于运行`/bin/sh`，因此`/bin/dash`中的对策使我们的攻击更加困难。因此，我们将`/bin/sh`链接到另一个没有这种对策的`Shell`程序（在以后的任务中，我们将展示出一点点的努力，就可以轻易克服`/bin/dash`中的对策）。我们已经在Ubuntu 16.04 VM中安装了名为`zsh`的`Shell`程序。我们使用以下命令将`/bin/sh`链接到zsh（在Ubuntu 12.04中无需执行这些操作）：
+```shell
+$ sudo rm /bin/sh
+$ sudo ln -s /bin/zsh /bin/sh
+```
+
+### 任务一 运行shell代码
 
 
 

